@@ -968,3 +968,83 @@ resource "aws_iam_role_policy_attachment" "backup" {
   role       = aws_iam_role.backup.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup"
 }
+# SQS - メインキュー
+resource "aws_sqs_queue" "main" {
+  name                       = "terraform-portfolio-queue"
+  visibility_timeout_seconds = 30
+  message_retention_seconds  = 86400
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.dlq.arn
+    maxReceiveCount     = 3
+  })
+
+  tags = { Name = "terraform-portfolio-queue" }
+}
+
+# SQS - DLQ
+resource "aws_sqs_queue" "dlq" {
+  name                      = "terraform-portfolio-dlq"
+  message_retention_seconds = 604800
+
+  tags = { Name = "terraform-portfolio-dlq" }
+}
+
+# Lambda - SQS処理用
+resource "aws_lambda_function" "sqs_processor" {
+  filename      = "lambda.zip"
+  function_name = "terraform-portfolio-sqs-processor"
+  role          = aws_iam_role.lambda.arn
+  handler       = "index.handler"
+  runtime       = "python3.12"
+  publish       = true
+
+  tags = { Name = "terraform-portfolio-sqs-processor" }
+}
+
+# Lambda - SQSトリガー
+resource "aws_lambda_event_source_mapping" "sqs" {
+  event_source_arn = aws_sqs_queue.main.arn
+  function_name    = aws_lambda_function.sqs_processor.arn
+  batch_size       = 10
+  enabled          = true
+}
+
+# IAM - LambdaにSQS権限追加
+resource "aws_iam_role_policy" "lambda_sqs" {
+  name = "lambda-sqs-policy"
+  role = aws_iam_role.lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage",
+          "sqs:GetQueueAttributes",
+        ]
+        Resource = aws_sqs_queue.main.arn
+      }
+    ]
+  })
+}
+
+# CloudWatch Alarm - DLQ監視
+resource "aws_cloudwatch_metric_alarm" "dlq_messages" {
+  alarm_name          = "terraform-portfolio-dlq-alarm"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  namespace           = "AWS/SQS"
+  period              = 60
+  statistic           = "Sum"
+  threshold           = 0
+  alarm_description   = "DLQにメッセージが入ったら通知"
+
+  dimensions = {
+    QueueName = aws_sqs_queue.dlq.name
+  }
+
+  tags = { Name = "terraform-portfolio-dlq-alarm" }
+}
