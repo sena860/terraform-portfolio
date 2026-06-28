@@ -919,3 +919,52 @@ resource "aws_organizations_policy_attachment" "audit_protection_shared" {
   policy_id = aws_organizations_policy.audit_protection.id
   target_id = aws_organizations_organizational_unit.shared.id
 }
+# GuardDuty
+resource "aws_guardduty_detector" "main" {
+  enable = true
+
+  tags = { Name = "terraform-portfolio-guardduty" }
+}
+
+# Backup Vault
+resource "aws_backup_vault" "main" {
+  name = "terraform-portfolio-vault"
+
+  tags = { Name = "terraform-portfolio-vault" }
+}
+
+# Backup Plan
+resource "aws_backup_plan" "main" {
+  name = "terraform-portfolio-backup-plan"
+
+  rule {
+    rule_name         = "daily-backup"
+    target_vault_name = aws_backup_vault.main.name
+    schedule          = "cron(0 12 * * ? *)"
+
+    lifecycle {
+      delete_after = 7
+    }
+  }
+
+  tags = { Name = "terraform-portfolio-backup" }
+}
+
+# IAM Role - Backup用
+resource "aws_iam_role" "backup" {
+  name = "backup-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "backup.amazonaws.com" }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "backup" {
+  role       = aws_iam_role.backup.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup"
+}
