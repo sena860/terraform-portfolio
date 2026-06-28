@@ -482,3 +482,172 @@ resource "aws_vpc_endpoint" "ec2messages" {
 
   tags = { Name = "vpce-ec2messages" }
 }
+# S3
+resource "aws_s3_bucket" "static" {
+  bucket = "terraform-portfolio-20260627"
+
+  tags = { Name = "terraform-portfolio-s3" }
+}
+
+resource "aws_s3_bucket_public_access_block" "static" {
+  bucket = aws_s3_bucket.static.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+data "aws_caller_identity" "current" {}
+# CloudFront OAC
+resource "aws_cloudfront_origin_access_control" "static" {
+  name                              = "terraform-portfolio-oac"
+  origin_access_control_origin_type = "s3"
+  signing_behavior                  = "always"
+  signing_protocol                  = "sigv4"
+}
+
+# CloudFront Distribution
+resource "aws_cloudfront_distribution" "static" {
+  enabled             = true
+  default_root_object = "index.html"
+
+  origin {
+    domain_name              = aws_s3_bucket.static.bucket_regional_domain_name
+    origin_id                = "s3-terraform-portfolio"
+    origin_access_control_id = aws_cloudfront_origin_access_control.static.id
+  }
+
+  default_cache_behavior {
+    allowed_methods        = ["GET", "HEAD"]
+    cached_methods         = ["GET", "HEAD"]
+    target_origin_id       = "s3-terraform-portfolio"
+    viewer_protocol_policy = "redirect-to-https"
+
+    forwarded_values {
+      query_string = false
+      cookies {
+        forward = "none"
+      }
+    }
+  }
+
+  restrictions {
+    geo_restriction {
+      restriction_type = "none"
+    }
+  }
+
+  viewer_certificate {
+    cloudfront_default_certificate = true
+  }
+
+  tags = { Name = "terraform-portfolio-cf" }
+}
+
+# S3 バケットポリシー - CloudFrontのみ許可
+resource "aws_s3_bucket_policy" "static" {
+  bucket = aws_s3_bucket.static.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowCloudFrontAccess"
+        Effect = "Allow"
+        Principal = {
+          Service = "cloudfront.amazonaws.com"
+        }
+        Action   = "s3:GetObject"
+        Resource = "${aws_s3_bucket.static.arn}/*"
+        Condition = {
+          StringEquals = {
+            "AWS:SourceArn" = aws_cloudfront_distribution.static.arn
+          }
+        }
+      }
+    ]
+  })
+}
+# KMS
+resource "aws_kms_key" "s3" {
+  description             = "S3暗号化用CMK"
+  deletion_window_in_days = 7
+
+  tags = { Name = "terraform-portfolio-kms" }
+}
+
+resource "aws_kms_alias" "s3" {
+  name          = "alias/terraform-portfolio-s3"
+  target_key_id = aws_kms_key.s3.key_id
+}
+
+# Secrets Manager
+resource "aws_secretsmanager_secret" "dummy" {
+  name        = "terraform-portfolio/practice-secret"
+  description = "練習用シークレット"
+  kms_key_id  = aws_kms_key.s3.id
+
+  tags = { Name = "terraform-portfolio-secret" }
+}
+
+resource "aws_secretsmanager_secret_version" "dummy" {
+  secret_id     = aws_secretsmanager_secret.dummy.id
+  secret_string = jsonencode({ db_password = "dummy-password-123" })
+}
+# Route53 Hosted Zone
+resource "aws_route53_zone" "main" {
+  name = "portfolio-aws-solutions.site"
+
+  tags = { Name = "terraform-portfolio-zone" }
+}
+# Route53 Health Check - ALB監視
+resource "aws_route53_health_check" "alb" {
+  fqdn              = aws_lb.main.dns_name
+  port              = 80
+  type              = "HTTP"
+  resource_path     = "/"
+  failure_threshold = 3
+  request_interval  = 30
+
+  tags = { Name = "terraform-portfolio-health-check" }
+}
+
+# Route53 Failover Record - PRIMARY
+resource "aws_route53_record" "primary" {
+  zone_id = aws_route53_zone.main.zone_id
+  name    = "portfolio-aws-solutions.site"
+  type    = "A"
+
+  failover_routing_policy {
+    type = "PRIMARY"
+  }
+
+  set_identifier  = "primary"
+  health_check_id = aws_route53_health_check.alb.id
+
+  alias {
+    name                   = aws_lb.main.dns_name
+    zone_id                = aws_lb.main.zone_id
+    evaluate_target_health = true
+  }
+}
+
+# Route53 Failover Record - SECONDARY
+resource "aws_route53_record" "secondary" {
+  zone_id = aws_route53_zone.main.zone_id
+  name    = "portfolio-aws-solutions.site"
+  type    = "A"
+
+  failover_routing_policy {
+    type = "SECONDARY"
+  }
+
+  set_identifier = "secondary"
+
+  alias {
+    name                   = aws_cloudfront_distribution.static.domain_name
+    zone_id                = aws_cloudfront_distribution.static.hosted_zone_id
+    evaluate_target_health = false
+  }
+}
