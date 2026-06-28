@@ -749,3 +749,173 @@ resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
 
   tags = { Name = "terraform-portfolio-lambda-alarm" }
 }
+# CloudTrail - Organization Trail
+resource "aws_cloudtrail" "main" {
+  name                          = "terraform-portfolio-trail"
+  s3_bucket_name                = aws_s3_bucket.cloudtrail.id
+  is_organization_trail         = true
+  is_multi_region_trail         = true
+  include_global_service_events = true
+  enable_log_file_validation    = true
+
+  tags = { Name = "terraform-portfolio-trail" }
+}
+
+# S3 - CloudTrail用
+resource "aws_s3_bucket" "cloudtrail" {
+  bucket = "terraform-portfolio-cloudtrail-20260628"
+
+  tags = { Name = "terraform-portfolio-cloudtrail" }
+}
+
+resource "aws_s3_bucket_public_access_block" "cloudtrail" {
+  bucket = aws_s3_bucket.cloudtrail.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_policy" "cloudtrail" {
+  bucket = aws_s3_bucket.cloudtrail.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AWSCloudTrailAclCheck"
+        Effect = "Allow"
+        Principal = {
+          Service = "cloudtrail.amazonaws.com"
+        }
+        Action   = "s3:GetBucketAcl"
+        Resource = aws_s3_bucket.cloudtrail.arn
+      },
+      {
+        Sid    = "AWSCloudTrailWrite"
+        Effect = "Allow"
+        Principal = {
+          Service = "cloudtrail.amazonaws.com"
+        }
+        Action   = "s3:PutObject"
+        Resource = "${aws_s3_bucket.cloudtrail.arn}/AWSLogs/*"
+        Condition = {
+          StringEquals = {
+            "s3:x-amz-acl" = "bucket-owner-full-control"
+          }
+        }
+      },
+      {
+        Sid    = "AWSConfigBucketPermissionsCheck"
+        Effect = "Allow"
+        Principal = {
+          Service = "config.amazonaws.com"
+        }
+        Action   = "s3:GetBucketAcl"
+        Resource = aws_s3_bucket.cloudtrail.arn
+      },
+      {
+        Sid    = "AWSConfigBucketDelivery"
+        Effect = "Allow"
+        Principal = {
+          Service = "config.amazonaws.com"
+        }
+        Action   = "s3:PutObject"
+        Resource = "${aws_s3_bucket.cloudtrail.arn}/AWSLogs/*"
+        Condition = {
+          StringEquals = {
+            "s3:x-amz-acl" = "bucket-owner-full-control"
+          }
+        }
+      }
+    ]
+  })
+}
+
+# Config Recorder
+resource "aws_config_configuration_recorder" "main" {
+  name     = "terraform-portfolio-recorder"
+  role_arn = aws_iam_role.config.arn
+
+  recording_group {
+    all_supported = true
+  }
+}
+
+resource "aws_config_delivery_channel" "main" {
+  name           = "terraform-portfolio-channel"
+  s3_bucket_name = aws_s3_bucket.cloudtrail.id
+
+  depends_on = [aws_config_configuration_recorder.main]
+}
+
+resource "aws_config_configuration_recorder_status" "main" {
+  name       = aws_config_configuration_recorder.main.name
+  is_enabled = true
+
+  depends_on = [aws_config_delivery_channel.main]
+}
+
+# IAM Role - Config用
+resource "aws_iam_role" "config" {
+  name = "config-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "config.amazonaws.com" }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "config" {
+  role       = aws_iam_role.config.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWS_ConfigRole"
+}
+
+# Security Hub
+resource "aws_securityhub_account" "main" {}
+
+# SCP強化 - CloudTrail/Config保護
+resource "aws_organizations_policy" "audit_protection" {
+  name        = "audit-protection"
+  description = "CloudTrail削除禁止・Config停止禁止"
+  type        = "SERVICE_CONTROL_POLICY"
+
+  content = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "DenyCloudTrailDelete"
+        Effect = "Deny"
+        Action = [
+          "cloudtrail:DeleteTrail",
+          "cloudtrail:StopLogging",
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "DenyConfigStop"
+        Effect = "Deny"
+        Action = [
+          "config:StopConfigurationRecorder",
+          "config:DeleteConfigurationRecorder",
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_organizations_policy_attachment" "audit_protection_dev" {
+  policy_id = aws_organizations_policy.audit_protection.id
+  target_id = aws_organizations_organizational_unit.dev.id
+}
+
+resource "aws_organizations_policy_attachment" "audit_protection_shared" {
+  policy_id = aws_organizations_policy.audit_protection.id
+  target_id = aws_organizations_organizational_unit.shared.id
+}
