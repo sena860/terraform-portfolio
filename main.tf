@@ -613,7 +613,7 @@ resource "aws_route53_health_check" "alb" {
   tags = { Name = "terraform-portfolio-health-check" }
 }
 
-# Route53 Failover Record - PRIMARY
+# Route53 Failover PRIMARY
 resource "aws_route53_record" "primary" {
   zone_id = aws_route53_zone.main.zone_id
   name    = "portfolio-aws-solutions.site"
@@ -633,7 +633,7 @@ resource "aws_route53_record" "primary" {
   }
 }
 
-# Route53 Failover Record - SECONDARY
+# Route53 Failover SECONDARY
 resource "aws_route53_record" "secondary" {
   zone_id = aws_route53_zone.main.zone_id
   name    = "portfolio-aws-solutions.site"
@@ -650,4 +650,102 @@ resource "aws_route53_record" "secondary" {
     zone_id                = aws_cloudfront_distribution.static.hosted_zone_id
     evaluate_target_health = false
   }
+}
+# Lambda 関数
+resource "aws_lambda_function" "main" {
+  filename      = "lambda.zip"
+  function_name = "terraform-portfolio-lambda"
+  role          = aws_iam_role.lambda.arn
+  handler       = "index.handler"
+  runtime       = "python3.12"
+  publish       = true
+
+  tags = { Name = "terraform-portfolio-lambda" }
+}
+
+# IAM Role - Lambda用
+resource "aws_iam_role" "lambda" {
+  name = "lambda-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "lambda" {
+  role       = aws_iam_role.lambda.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+# Lambda Alias - Canary
+resource "aws_lambda_alias" "live" {
+  name             = "live"
+  function_name    = aws_lambda_function.main.function_name
+  function_version = aws_lambda_function.main.version
+}
+
+# CodeDeploy
+resource "aws_codedeploy_app" "lambda" {
+  name             = "terraform-portfolio-lambda"
+  compute_platform = "Lambda"
+}
+
+resource "aws_codedeploy_deployment_group" "lambda" {
+  app_name               = aws_codedeploy_app.lambda.name
+  deployment_group_name  = "terraform-portfolio-dg"
+  service_role_arn       = aws_iam_role.codedeploy.arn
+  deployment_config_name = "CodeDeployDefault.LambdaCanary10Percent5Minutes"
+
+  auto_rollback_configuration {
+    enabled = true
+    events  = ["DEPLOYMENT_FAILURE"]
+  }
+
+  deployment_style {
+    deployment_option = "WITH_TRAFFIC_CONTROL"
+    deployment_type   = "BLUE_GREEN"
+  }
+}
+
+# IAM Role - CodeDeploy用
+resource "aws_iam_role" "codedeploy" {
+  name = "codedeploy-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "codedeploy.amazonaws.com" }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "codedeploy" {
+  role       = aws_iam_role.codedeploy.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRoleForLambda"
+}
+
+# CloudWatch Alarm
+resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
+  alarm_name          = "terraform-portfolio-lambda-errors"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "Errors"
+  namespace           = "AWS/Lambda"
+  period              = 60
+  statistic           = "Sum"
+  threshold           = 1
+  alarm_description   = "Lambda エラー検知 → 自動ロールバック"
+
+  dimensions = {
+    FunctionName = aws_lambda_function.main.function_name
+  }
+
+  tags = { Name = "terraform-portfolio-lambda-alarm" }
 }
