@@ -122,31 +122,31 @@ resource "aws_organizations_account" "sena2" {
   parent_id = aws_organizations_organizational_unit.dev.id
 }
 # IAM Identity Center
-data "aws_ssoadmin_instances" "this" {}
+#data "aws_ssoadmin_instances" "this" {}
 
-resource "aws_ssoadmin_permission_set" "admin" {
-  name             = "Admin"
-  instance_arn     = tolist(data.aws_ssoadmin_instances.this.arns)[0]
-  session_duration = "PT8H"
-}
+#resource "aws_ssoadmin_permission_set" "admin" {
+  #name             = "Admin"
+  #instance_arn     = tolist(data.aws_ssoadmin_instances.this.arns)[0]
+  #session_duration = "PT8H"
+#}
 
-resource "aws_ssoadmin_managed_policy_attachment" "admin" {
-  instance_arn       = tolist(data.aws_ssoadmin_instances.this.arns)[0]
-  permission_set_arn = aws_ssoadmin_permission_set.admin.arn
-  managed_policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
-}
+#resource "aws_ssoadmin_managed_policy_attachment" "admin" {
+ # instance_arn       = tolist(data.aws_ssoadmin_instances.this.arns)[0]
+ # permission_set_arn = aws_ssoadmin_permission_set.admin.arn
+ # managed_policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
+#}
 
-resource "aws_ssoadmin_permission_set" "readonly" {
-  name             = "ReadOnly"
-  instance_arn     = tolist(data.aws_ssoadmin_instances.this.arns)[0]
-  session_duration = "PT8H"
-}
+#resource "aws_ssoadmin_permission_set" "readonly" {
+ # name             = "ReadOnly"
+#  instance_arn     = tolist(data.aws_ssoadmin_instances.this.arns)[0]
+ # session_duration = "PT8H"
+#}
 
-resource "aws_ssoadmin_managed_policy_attachment" "readonly" {
-  instance_arn       = tolist(data.aws_ssoadmin_instances.this.arns)[0]
-  permission_set_arn = aws_ssoadmin_permission_set.readonly.arn
-  managed_policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
-}
+#resource "aws_ssoadmin_managed_policy_attachment" "readonly" {
+  #instance_arn       = tolist(data.aws_ssoadmin_instances.this.arns)[0]
+  #permission_set_arn = aws_ssoadmin_permission_set.readonly.arn
+  #managed_policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
+#}
 # VPC
 resource "aws_vpc" "main" {
   cidr_block           = "10.0.0.0/16"
