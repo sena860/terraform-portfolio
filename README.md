@@ -100,6 +100,8 @@ S3を直接公開すると誤公開リスクが高い。CloudFrontを前段に�
 ### なぜ IAM Identity Center？
 
 IAMユーザーはアカウントごとに管理が必要で鍵の使い回し・権限肥大化が起きやすい。Identity Centerにより組織全体のアクセスをSSOに統一し、Permission Setで最小権限を制御することで、鍵管理不要のゼロトラストに近いアクセス制御ができる。
+Identity CenterはTerraform destroy時に依存関係が壊れやすく、実際に本構成でも削除エラーが発生したため、実務と同様にGUI管理としIaC対象外としている。
+
 
 ## アカウント構成
 
