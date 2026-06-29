@@ -82,7 +82,7 @@ SCPは管理アカウントから強制適用されるため、
 
 ### なぜ Private Subnet？
 
-EC2をPublic Subnetに置くと攻撃面が広がる。本構成ではALBをDMZとして前段に置き、EC2はPraivate Subnetに隔離している。インバウンドはALB経由のみ、運用アクセスはSSM Session Managerに限定し、最小権限とゼロトラストに近い構成をとっている。
+EC2をPublic Subnetに置くと攻撃面が広がる。本構成ではALBをDMZとして前段に置き、EC2はPrivate Subnetに隔離している。インバウンドはALB経由のみ、運用アクセスはSSM Session Managerに限定し、最小権限とゼロトラストに近い構成をとっている。
 
 ### なぜ SSM Session Manager？
 
@@ -98,7 +98,7 @@ S3を直接公開すると誤公開リスクが高い。CloudFrontを前段に�
 
 ### なぜ IAM Identity Center？
 
-IAMユーザーはアカウントごとに管理が必要で鍵の使い回し・権限肥大化が起きやすい。Identity Centerにより組織全体のアクセスをSSOに統一し、Permission Setで最小権限管理を管理することで、鍵管理不要のゼロトラストに近いアクセス制御ができる。
+IAMユーザーはアカウントごとに管理が必要で鍵の使い回し・権限肥大化が起きやすい。Identity Centerにより組織全体のアクセスをSSOに統一し、Permission Setで最小権限を制御することで、鍵管理不要のゼロトラストに近いアクセス制御ができる。
 
 ## アカウント構成
 
