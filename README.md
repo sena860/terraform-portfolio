@@ -112,10 +112,9 @@ Identity CenterはTerraform destroy時に依存関係が壊れやすく、実際
 | Shared（将来追加） | Shared Account | Transit Gateway・共通基盤 |
 
 ## 今後の改善
-
 - v2.0.0: S3 Data Lake / Glue / Athena / Lake Formation
-- Transit Gateway による Hub-and-Spoke 構成
+- Transit GatewayによるHub-and-Spoke構成
 - GitHub Actions CI/CD（fmt / validate / plan / tfsec / checkov）
-- Security Hub の自動化ルール追加
-- IAM Identity Center の Permission Set 最適化
-
+- Canary Deployの改善：現状はリクエスト単位でランダムルーティングされるため、
+  ALBターゲットグループのスティッキーセッション（Cookie ベース）を有効化し、
+  同一ユーザーがデプロイ完了まで同一バージョンにアクセスし続けられる構成に改善予定
