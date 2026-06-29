@@ -51,14 +51,14 @@ AWS Organizations
 
 | バージョン | 内容 | ステータス |
 |---|---|---|
-| v1.0.0 | Organizations / SCP / IAM Identity Center | ✅ 実装済み |
-| v1.1.0 | VPC / ALB / ASG / EC2 / SSM Session Manager | ✅ 実装済み |
-| v1.2.0 | CloudFront / S3 / Route53 / KMS / Secrets Manager | ✅ 実装済み |
-| v1.3.0 | Lambda Canary Deploy | ✅ 実装済み |
-| v1.4.0 | CloudTrail / Config / Security Hub / SCP強化 | ✅ 実装済み |
-| v1.5.0 | GuardDuty / Backup | ✅ 実装済み |
-| v1.6.0 | SQS / DLQ / Lambda非同期処理 | ✅ 実装済み |
-| v2.0.0 | S3 Data Lake / Glue / Athena / Lake Formation | 🔧 実装予定 |
+| v1.0.0 | Organizations / SCP / IAM Identity Center | 実装済み |
+| v1.1.0 | VPC / ALB / ASG / EC2 / SSM Session Manager | 実装済み |
+| v1.2.0 | CloudFront / S3 / Route53 / KMS / Secrets Manager | 実装済み |
+| v1.3.0 | Lambda Canary Deploy | 実装済み |
+| v1.4.0 | CloudTrail / Config / Security Hub / SCP強化 | 実装済み |
+| v1.5.0 | GuardDuty / Backup | 実装済み |
+| v1.6.0 | SQS / DLQ / Lambda非同期処理 | 実装済み |
+| v2.0.0 | S3 Data Lake / Glue / Athena / Lake Formation | 実装予定 |
 
 ## 設計思想
 
@@ -74,27 +74,31 @@ Organizationsにより環境ごとの権限境界を確立し、SCPによって�
 
 ### なぜ SCP？
 
-IAMポリシーはアカウント管理者が緩める可能性がある。SCPは管理アカウントから強制適用される絶対的な制御のため、どのIAMエンティティも回避できない。高額サービスのDeny・IAM ユーザー作成禁止により、コスト事故・権限事故を構造的に防止する。
+IAMポリシーはアカウント管理者の設定変更で意図せず緩む可能性がある。
+SCPは管理アカウントから強制適用されるため、
+どのIAMエンティティも例外なく従うガードレールとして機能する。
+高額サービスの利用禁止やIAMユーザー作成禁止を組織レベルで固定化することで、
+コスト事故・権限事故を構造的に防止できる。
 
 ### なぜ Private Subnet？
 
-EC2をPublic Subnetに置くと攻撃面が増大する。本構成ではALBをDMZとして配置し、EC2はPrivate Subnetに隔離。インバウンドはALB経由のみ、アクセスはSSM Session Managerのみとすることで最小権限・ゼロトラストに近い構成を実現。
+EC2をPublic Subnetに置くと攻撃面が広がる。本構成ではALBをDMZとして前段に置き、EC2はPraivate Subnetに隔離している。インバウンドはALB経由のみ、運用アクセスはSSM Session Managerに限定し、最小権限とゼロトラストに近い構成をとっている。
 
 ### なぜ SSM Session Manager？
 
-踏み台サーバはSSH鍵管理・SG管理・OS パッチ適用・ログ監査の運用コストが高い。SSMはIAM権限のみで接続を制御でき、セッションログは CloudTrailに自動記録される。鍵管理ゼロ・踏み台不要・証跡自動化を実現。
+踏み台サーバはSSH鍵管理・SG管理・OS パッチ適用・ログ監査の運用コストが高い。SSMはIAM権限のみで接続を制御でき、セッションログもCloudTrailに自動記録されるため鍵管理ゼロ・踏み台不要・証跡自動化を実現できる。
 
 ### なぜ CloudFront？
 
-S3を直接公開すると誤公開リスクが高い。CloudFrontを前段に配置しOACによりS3への直接アクセスを完全遮断。エッジキャッシュで高速配信を実現する。OAI旧方式は非推奨のため採用しない。
+S3を直接公開すると誤公開リスクが高い。CloudFrontを前段に配置しOACによりS3への直接アクセスを完全に遮断する。エッジキャッシュで高速配信も可能でOAI旧方式は非推奨のため採用しない。
 
 ### なぜ Canary Deploy？
 
-一括デプロイは障害時の影響範囲が大きい。Canaryでは新バージョンへのトラフィックを10%に限定し、CloudWatch Alarmが閾値超過を検知した時点で CodeDeployが自動的に旧バージョンへ切り戻す。安全な段階的リリースを実現。
+一括デプロイは障害時の影響範囲が大きい。Canaryでは新バージョンへのトラフィックを10%に限定し、CloudWatch Alarmが閾値超過を検知した時点で CodeDeployが自動的に旧バージョンへ切り戻す。安全な段階的リリースを行うための構成。
 
 ### なぜ IAM Identity Center？
 
-IAMユーザーはアカウントごとに管理が必要で鍵の使い回し・権限肥大化が起きやすい。Identity Centerにより組織全体のアクセスをSSOに統一し、Permission Setによる最小権限管理・鍵管理不要のゼロトラストに近いアクセス管理を実現する。
+IAMユーザーはアカウントごとに管理が必要で鍵の使い回し・権限肥大化が起きやすい。Identity Centerにより組織全体のアクセスをSSOに統一し、Permission Setで最小権限管理を管理することで、鍵管理不要のゼロトラストに近いアクセス制御ができる。
 
 ## アカウント構成
 
