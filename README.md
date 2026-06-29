@@ -2,13 +2,14 @@ AWS Multi-Account Infrastructure as Code | Terraform
 
 ## 目的
 
-本リポジトリは、エンタープライズ運用を意識したAWS基盤をTerraformにより再現し、以下の観点で本番運用可能なアーキテクチャを構築することを目的とする。
+本リポジトリは、AWS Certified Solutions Architect - Professional（SAP）で学習した設計思想を、Terraformを用いてInfrastructure as Codeとして再現することを目的とする。
+企業で求められる設計・運用を意識し、以下の観点でAWS基盤を段階的に構築する。
 
-- マルチアカウント戦略
-- 高可用性
-- セキュリティ
-- 運用自動化
-- IaCによる再現性・変更管理
+マルチアカウント戦略
+高可用性
+セキュリティ
+運用自動化
+IaCによる再現性・変更管理
 
 AWS Organizationsを中心に、ガバナンス・ネットワーク・アプリ基盤・セキュリティ・運用監査まで段階的に実装する。
 
@@ -115,3 +116,4 @@ IAMユーザーはアカウントごとに管理が必要で鍵の使い回し�
 - GitHub Actions CI/CD（fmt / validate / plan / tfsec / checkov）
 - Security Hub の自動化ルール追加
 - IAM Identity Center の Permission Set 最適化
+
