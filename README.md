@@ -115,6 +115,4 @@ Identity CenterはTerraform destroy時に依存関係が壊れやすく、実際
 - v2.0.0: S3 Data Lake / Glue / Athena / Lake Formation
 - Transit GatewayによるHub-and-Spoke構成
 - GitHub Actions CI/CD（fmt / validate / plan / tfsec / checkov）
-- Canary Deployの改善：現状はリクエスト単位でランダムルーティングされるため、
-  ALBターゲットグループのスティッキーセッション（Cookie ベース）を有効化し、
-  同一ユーザーがデプロイ完了まで同一バージョンにアクセスし続けられる構成に改善予定
+- Canary Deployの改善：現状はリクエスト単位で新旧バージョンへ振り分けられるため、同一ユーザーがアクセスのたびに異なるバージョンへルーティングされる可能性がある。今後はALBターゲットグループのスティッキーセッション（Cookieベース）を有効化し、デプロイ完了まで同一ユーザーを同一バージョンへルーティングする構成へ改善予定。
