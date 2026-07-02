@@ -112,7 +112,27 @@ Identity CenterはTerraform destroy時に依存関係が壊れやすく、実際
 | Shared（将来追加） | Shared Account | Transit Gateway・共通基盤 |
 
 ## 今後の改善
+
 - v2.0.0: S3 Data Lake / Glue / Athena / Lake Formation
-- Transit GatewayによるHub-and-Spoke構成
+- Transit Gateway による Hub-and-Spoke 構成
 - GitHub Actions CI/CD（fmt / validate / plan / tfsec / checkov）
-- Canary Deployの改善：現状はリクエスト単位で新旧バージョンへ振り分けられるため、同一ユーザーがアクセスのたびに異なるバージョンへルーティングされる可能性がある。今後はALBターゲットグループのスティッキーセッション（Cookieベース）を有効化し、デプロイ完了まで同一ユーザーを同一バージョンへルーティングする構成へ改善予定。
+- Canary Deploy の改善：ALB ターゲットグループのスティッキーセッション（Cookie ベース）を有効化し、同一ユーザーがデプロイ完了まで同一バージョンにアクセスし続けられる構成に改善予定
+
+## 既知の課題
+
+### マルチアカウントのプロバイダ分離
+
+現状は `provider "aws"` が1つのみのため、VPC / EC2 / ALB 等のリソースが Management アカウント（sena）側に作成されている。
+
+本来は `assume_role` を使用して Dev アカウント（sena2）の `OrganizationAccountAccessRole` にスイッチし、リソースをアカウントごとに分離すべき。
+
+```hcl
+provider "aws" {
+  alias  = "dev"
+  assume_role {
+    role_arn = "arn:aws:iam::482178843450:role/OrganizationAccountAccessRole"
+  }
+}
+```
+
+個人検証環境のため現状は単一プロバイダで構築しているが、今後のバージョンで対応予定。
