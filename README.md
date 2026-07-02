@@ -136,3 +136,12 @@ provider "aws" {
 ```
 
 個人検証環境のため現状は単一プロバイダで構築しているが、今後のバージョンで対応予定。
+
+### KMS と S3 / CloudFront の結合
+
+`aws_kms_key.s3` を作成しているが、以下の設定が未完了。
+
+- `aws_s3_bucket_server_side_encryption_configuration` による S3 への KMS 適用
+- KMS キーポリシーへの `cloudfront.amazonaws.com` の `kms:Decrypt` 権限付与
+
+後者がないと CloudFront が KMS 暗号化された S3 からオブジェクトを取得できず 403 エラーになる。今後のバージョンで対応予定。
