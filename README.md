@@ -113,18 +113,18 @@ Identity CenterはTerraform destroy時に依存関係が壊れやすく、実際
 
 ## 今後の改善
 
+### 機能追加
+
 - v2.0.0: S3 Data Lake / Glue / Athena / Lake Formation
 - Transit Gateway による Hub-and-Spoke 構成
 - GitHub Actions CI/CD（fmt / validate / plan / tfsec / checkov）
 - Canary Deploy の改善：ALB ターゲットグループのスティッキーセッション（Cookie ベース）を有効化し、同一ユーザーがデプロイ完了まで同一バージョンにアクセスし続けられる構成に改善予定
 
-## 既知の課題
+### 修正・改善
 
-### マルチアカウントのプロバイダ分離
+#### マルチアカウントのプロバイダ分離
 
-現状は `provider "aws"` が1つのみのため、VPC/EC2/ALB等のリソースがManagementアカウント（sena）側に作成されている。
-
-本来は `assume_role` を使用してDevアカウント（sena2）の `OrganizationAccountAccessRole` にスイッチし、リソースをアカウントごとに分離すべき。
+現状は `provider "aws"` が1つのみのため、VPC / EC2 / ALB 等のリソースが Management アカウント（sena）側に作成されている。本来は `assume_role` を使用して Dev アカウント（sena2）の `OrganizationAccountAccessRole` にスイッチし、リソースをアカウントごとに分離すべき。
 
 ```hcl
 provider "aws" {
@@ -137,11 +137,11 @@ provider "aws" {
 
 個人検証環境のため現状は単一プロバイダで構築しているが、今後のバージョンで対応予定。
 
-### KMSとS3/CloudFrontの結合
+#### KMS と S3 / CloudFront の結合
 
 `aws_kms_key.s3` を作成しているが、以下の設定が未完了。
 
-- `aws_s3_bucket_server_side_encryption_configuration` によるS3へのKMS適用
-- KMSキーポリシーへの `cloudfront.amazonaws.com` の `kms:Decrypt` 権限付与
+- `aws_s3_bucket_server_side_encryption_configuration` による S3 への KMS 適用
+- KMS キーポリシーへの `cloudfront.amazonaws.com` の `kms:Decrypt` 権限付与
 
-後者がないと CloudFrontがKMS暗号化されたS3からオブジェクトを取得できず403エラーになる。今後のバージョンで対応予定。
+後者がないと CloudFront が KMS 暗号化された S3 からオブジェクトを取得できず 403 エラーになる。今後のバージョンで対応予定。
