@@ -1,4 +1,6 @@
 terraform {
+  required_version = ">= 1.0"
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -7,9 +9,21 @@ terraform {
   }
 }
 
+# Managementアカウント用プロバイダ
 provider "aws" {
   region = "ap-northeast-1"
 }
+
+# Devアカウント用プロバイダ
+provider "aws" {
+  alias  = "dev"
+  region = "ap-northeast-1"
+
+  assume_role {
+    role_arn = "arn:aws:iam::482178843450:role/OrganizationAccountAccessRole"
+  }
+}
+
 # Organizations
 resource "aws_organizations_organization" "this" {
   feature_set = "ALL"
@@ -19,8 +33,9 @@ resource "aws_organizations_organization" "this" {
     "config.amazonaws.com",
     "sso.amazonaws.com",
   ]
-   enabled_policy_types = ["SERVICE_CONTROL_POLICY"]
+  enabled_policy_types = ["SERVICE_CONTROL_POLICY"]
 }
+
 # OU作成
 resource "aws_organizations_organizational_unit" "shared" {
   name      = "Shared"
@@ -31,6 +46,14 @@ resource "aws_organizations_organizational_unit" "dev" {
   name      = "Dev"
   parent_id = aws_organizations_organization.this.roots[0].id
 }
+
+# sena2 を Dev OU に移動
+resource "aws_organizations_account" "sena2" {
+  name      = "sena2"
+  email     = "shengcaihui48@gmail.com"
+  parent_id = aws_organizations_organizational_unit.dev.id
+}
+
 # SCP: コスト保護（Root適用）
 resource "aws_organizations_policy" "cost_protection" {
   name        = "cost-protection"
@@ -56,9 +79,9 @@ resource "aws_organizations_policy" "cost_protection" {
         Resource = "*"
       },
       {
-        Sid    = "DenyExpensiveEC2"
-        Effect = "Deny"
-        Action = ["ec2:RunInstances"]
+        Sid      = "DenyExpensiveEC2"
+        Effect   = "Deny"
+        Action   = ["ec2:RunInstances"]
         Resource = "arn:aws:ec2:*:*:instance/*"
         Condition = {
           StringLike = {
@@ -76,6 +99,7 @@ resource "aws_organizations_policy_attachment" "cost_protection_root" {
   policy_id = aws_organizations_policy.cost_protection.id
   target_id = aws_organizations_organization.this.roots[0].id
 }
+
 # SCP: ガバナンス（Shared / Dev OU適用）
 resource "aws_organizations_policy" "governance" {
   name        = "governance"
@@ -115,51 +139,61 @@ resource "aws_organizations_policy_attachment" "governance_dev" {
   policy_id = aws_organizations_policy.governance.id
   target_id = aws_organizations_organizational_unit.dev.id
 }
-# sena2 を Dev OU に移動
-resource "aws_organizations_account" "sena2" {
-  name      = "sena2"
-  email     = "shengcaihui48@gmail.com"
-  parent_id = aws_organizations_organizational_unit.dev.id
+
+# SCP強化 - CloudTrail/Config保護
+resource "aws_organizations_policy" "audit_protection" {
+  name        = "audit-protection"
+  description = "CloudTrail削除禁止・Config停止禁止"
+  type        = "SERVICE_CONTROL_POLICY"
+
+  content = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "DenyCloudTrailDelete"
+        Effect = "Deny"
+        Action = [
+          "cloudtrail:DeleteTrail",
+          "cloudtrail:StopLogging",
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "DenyConfigStop"
+        Effect = "Deny"
+        Action = [
+          "config:StopConfigurationRecorder",
+          "config:DeleteConfigurationRecorder",
+        ]
+        Resource = "*"
+      }
+    ]
+  })
 }
-# IAM Identity Center
-#data "aws_ssoadmin_instances" "this" {}
 
-#resource "aws_ssoadmin_permission_set" "admin" {
-  #name             = "Admin"
-  #instance_arn     = tolist(data.aws_ssoadmin_instances.this.arns)[0]
-  #session_duration = "PT8H"
-#}
+resource "aws_organizations_policy_attachment" "audit_protection_dev" {
+  policy_id = aws_organizations_policy.audit_protection.id
+  target_id = aws_organizations_organizational_unit.dev.id
+}
 
-#resource "aws_ssoadmin_managed_policy_attachment" "admin" {
- # instance_arn       = tolist(data.aws_ssoadmin_instances.this.arns)[0]
- # permission_set_arn = aws_ssoadmin_permission_set.admin.arn
- # managed_policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
-#}
+resource "aws_organizations_policy_attachment" "audit_protection_shared" {
+  policy_id = aws_organizations_policy.audit_protection.id
+  target_id = aws_organizations_organizational_unit.shared.id
+}
 
-#resource "aws_ssoadmin_permission_set" "readonly" {
- # name             = "ReadOnly"
-#  instance_arn     = tolist(data.aws_ssoadmin_instances.this.arns)[0]
- # session_duration = "PT8H"
-#}
-
-#resource "aws_ssoadmin_managed_policy_attachment" "readonly" {
-  #instance_arn       = tolist(data.aws_ssoadmin_instances.this.arns)[0]
-  #permission_set_arn = aws_ssoadmin_permission_set.readonly.arn
-  #managed_policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
-#}
-# VPC
+# VPC - Dev アカウント
 resource "aws_vpc" "main" {
+  provider             = aws.dev
   cidr_block           = "10.0.0.0/16"
   enable_dns_support   = true
   enable_dns_hostnames = true
 
-  tags = {
-    Name = "terraform-portfolio-vpc"
-  }
+  tags = { Name = "terraform-portfolio-vpc" }
 }
 
 # Subnet
 resource "aws_subnet" "public_a" {
+  provider                = aws.dev
   vpc_id                  = aws_vpc.main.id
   cidr_block              = "10.0.1.0/24"
   availability_zone       = "ap-northeast-1a"
@@ -169,6 +203,7 @@ resource "aws_subnet" "public_a" {
 }
 
 resource "aws_subnet" "public_c" {
+  provider                = aws.dev
   vpc_id                  = aws_vpc.main.id
   cidr_block              = "10.0.2.0/24"
   availability_zone       = "ap-northeast-1c"
@@ -178,6 +213,7 @@ resource "aws_subnet" "public_c" {
 }
 
 resource "aws_subnet" "private_a" {
+  provider          = aws.dev
   vpc_id            = aws_vpc.main.id
   cidr_block        = "10.0.11.0/24"
   availability_zone = "ap-northeast-1a"
@@ -186,6 +222,7 @@ resource "aws_subnet" "private_a" {
 }
 
 resource "aws_subnet" "private_c" {
+  provider          = aws.dev
   vpc_id            = aws_vpc.main.id
   cidr_block        = "10.0.12.0/24"
   availability_zone = "ap-northeast-1c"
@@ -195,18 +232,20 @@ resource "aws_subnet" "private_c" {
 
 # IGW
 resource "aws_internet_gateway" "main" {
-  vpc_id = aws_vpc.main.id
+  provider = aws.dev
+  vpc_id   = aws_vpc.main.id
 
   tags = { Name = "terraform-portfolio-igw" }
 }
 
-
 # NAT Gateway
 resource "aws_eip" "nat" {
-  domain = "vpc"
+  provider = aws.dev
+  domain   = "vpc"
 }
 
 resource "aws_nat_gateway" "main" {
+  provider      = aws.dev
   allocation_id = aws_eip.nat.id
   subnet_id     = aws_subnet.public_a.id
 
@@ -214,9 +253,9 @@ resource "aws_nat_gateway" "main" {
 }
 
 # Route Table
-
 resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.main.id
+  provider = aws.dev
+  vpc_id   = aws_vpc.main.id
 
   route {
     cidr_block = "0.0.0.0/0"
@@ -227,7 +266,8 @@ resource "aws_route_table" "public" {
 }
 
 resource "aws_route_table" "private" {
-  vpc_id = aws_vpc.main.id
+  provider = aws.dev
+  vpc_id   = aws_vpc.main.id
 
   route {
     cidr_block     = "0.0.0.0/0"
@@ -238,28 +278,34 @@ resource "aws_route_table" "private" {
 }
 
 resource "aws_route_table_association" "public_a" {
+  provider       = aws.dev
   subnet_id      = aws_subnet.public_a.id
   route_table_id = aws_route_table.public.id
 }
 
 resource "aws_route_table_association" "public_c" {
+  provider       = aws.dev
   subnet_id      = aws_subnet.public_c.id
   route_table_id = aws_route_table.public.id
 }
 
 resource "aws_route_table_association" "private_a" {
+  provider       = aws.dev
   subnet_id      = aws_subnet.private_a.id
   route_table_id = aws_route_table.private.id
 }
 
 resource "aws_route_table_association" "private_c" {
+  provider       = aws.dev
   subnet_id      = aws_subnet.private_c.id
   route_table_id = aws_route_table.private.id
 }
+
 # Security Group - ALB用
 resource "aws_security_group" "alb" {
-  name   = "alb-sg"
-  vpc_id = aws_vpc.main.id
+  provider = aws.dev
+  name     = "alb-sg"
+  vpc_id   = aws_vpc.main.id
 
   ingress {
     from_port   = 80
@@ -280,8 +326,9 @@ resource "aws_security_group" "alb" {
 
 # Security Group - EC2用
 resource "aws_security_group" "ec2" {
-  name   = "ec2-sg"
-  vpc_id = aws_vpc.main.id
+  provider = aws.dev
+  name     = "ec2-sg"
+  vpc_id   = aws_vpc.main.id
 
   ingress {
     from_port       = 80
@@ -300,9 +347,33 @@ resource "aws_security_group" "ec2" {
   tags = { Name = "ec2-sg" }
 }
 
+# Security Group - VPC Endpoint用
+resource "aws_security_group" "vpce" {
+  provider = aws.dev
+  name     = "vpce-sg"
+  vpc_id   = aws_vpc.main.id
+
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [aws_vpc.main.cidr_block]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = { Name = "vpce-sg" }
+}
+
 # IAM Role - SSM用
 resource "aws_iam_role" "ec2_ssm" {
-  name = "ec2-ssm-role"
+  provider = aws.dev
+  name     = "ec2-ssm-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -315,17 +386,20 @@ resource "aws_iam_role" "ec2_ssm" {
 }
 
 resource "aws_iam_role_policy_attachment" "ec2_ssm" {
+  provider   = aws.dev
   role       = aws_iam_role.ec2_ssm.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
 resource "aws_iam_instance_profile" "ec2_ssm" {
-  name = "ec2-ssm-profile"
-  role = aws_iam_role.ec2_ssm.name
+  provider = aws.dev
+  name     = "ec2-ssm-profile"
+  role     = aws_iam_role.ec2_ssm.name
 }
 
 # ALB
 resource "aws_lb" "main" {
+  provider           = aws.dev
   name               = "terraform-portfolio-alb"
   internal           = false
   load_balancer_type = "application"
@@ -335,8 +409,9 @@ resource "aws_lb" "main" {
   tags = { Name = "terraform-portfolio-alb" }
 }
 
-# Target Group
+# Target Group - スティッキーセッション有効
 resource "aws_lb_target_group" "main" {
+  provider = aws.dev
   name     = "terraform-portfolio-tg"
   port     = 80
   protocol = "HTTP"
@@ -348,11 +423,18 @@ resource "aws_lb_target_group" "main" {
     unhealthy_threshold = 2
   }
 
+  stickiness {
+    type            = "lb_cookie"
+    cookie_duration = 86400
+    enabled         = true
+  }
+
   tags = { Name = "terraform-portfolio-tg" }
 }
 
 # Listener
 resource "aws_lb_listener" "main" {
+  provider          = aws.dev
   load_balancer_arn = aws_lb.main.arn
   port              = 80
   protocol          = "HTTP"
@@ -365,6 +447,7 @@ resource "aws_lb_listener" "main" {
 
 # AMI - Amazon Linux 2023
 data "aws_ami" "amazon_linux" {
+  provider    = aws.dev
   most_recent = true
   owners      = ["amazon"]
 
@@ -376,6 +459,7 @@ data "aws_ami" "amazon_linux" {
 
 # Launch Template
 resource "aws_launch_template" "main" {
+  provider      = aws.dev
   name_prefix   = "terraform-portfolio-"
   image_id      = data.aws_ami.amazon_linux.id
   instance_type = "t3.micro"
@@ -402,6 +486,7 @@ resource "aws_launch_template" "main" {
 
 # Auto Scaling Group
 resource "aws_autoscaling_group" "main" {
+  provider            = aws.dev
   name                = "terraform-portfolio-asg"
   vpc_zone_identifier = [aws_subnet.private_a.id, aws_subnet.private_c.id]
   min_size            = 1
@@ -422,33 +507,14 @@ resource "aws_autoscaling_group" "main" {
 
 # ALB - ASG アタッチ
 resource "aws_autoscaling_attachment" "main" {
+  provider               = aws.dev
   autoscaling_group_name = aws_autoscaling_group.main.id
   lb_target_group_arn    = aws_lb_target_group.main.arn
-}
-# Security Group - VPC Endpoint用
-resource "aws_security_group" "vpce" {
-  name   = "vpce-sg"
-  vpc_id = aws_vpc.main.id
-
-  ingress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = [aws_vpc.main.cidr_block]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = { Name = "vpce-sg" }
 }
 
 # VPC Endpoint - SSM
 resource "aws_vpc_endpoint" "ssm" {
+  provider            = aws.dev
   vpc_id              = aws_vpc.main.id
   service_name        = "com.amazonaws.ap-northeast-1.ssm"
   vpc_endpoint_type   = "Interface"
@@ -461,6 +527,7 @@ resource "aws_vpc_endpoint" "ssm" {
 
 # VPC Endpoint - SSM Messages
 resource "aws_vpc_endpoint" "ssmmessages" {
+  provider            = aws.dev
   vpc_id              = aws_vpc.main.id
   service_name        = "com.amazonaws.ap-northeast-1.ssmmessages"
   vpc_endpoint_type   = "Interface"
@@ -473,6 +540,7 @@ resource "aws_vpc_endpoint" "ssmmessages" {
 
 # VPC Endpoint - EC2 Messages
 resource "aws_vpc_endpoint" "ec2messages" {
+  provider            = aws.dev
   vpc_id              = aws_vpc.main.id
   service_name        = "com.amazonaws.ap-northeast-1.ec2messages"
   vpc_endpoint_type   = "Interface"
@@ -482,15 +550,70 @@ resource "aws_vpc_endpoint" "ec2messages" {
 
   tags = { Name = "vpce-ec2messages" }
 }
-# S3
+
+# KMS - S3暗号化用
+resource "aws_kms_key" "s3" {
+  provider                = aws.dev
+  description             = "S3暗号化用CMK"
+  deletion_window_in_days = 7
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "Enable IAM User Permissions"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::482178843450:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowCloudFrontDecrypt"
+        Effect = "Allow"
+        Principal = {
+          Service = "cloudfront.amazonaws.com"
+        }
+        Action   = "kms:Decrypt"
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = { Name = "terraform-portfolio-kms" }
+}
+
+resource "aws_kms_alias" "s3" {
+  provider      = aws.dev
+  name          = "alias/terraform-portfolio-s3"
+  target_key_id = aws_kms_key.s3.key_id
+}
+
+# S3 - 静的ホスティング用
 resource "aws_s3_bucket" "static" {
-  bucket = "terraform-portfolio-20260627"
+  provider = aws.dev
+  bucket   = "terraform-portfolio-20260627"
 
   tags = { Name = "terraform-portfolio-s3" }
 }
 
+# S3 SSE - KMS暗号化
+resource "aws_s3_bucket_server_side_encryption_configuration" "static" {
+  provider = aws.dev
+  bucket   = aws_s3_bucket.static.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = aws_kms_key.s3.arn
+    }
+  }
+}
+
 resource "aws_s3_bucket_public_access_block" "static" {
-  bucket = aws_s3_bucket.static.id
+  provider = aws.dev
+  bucket   = aws_s3_bucket.static.id
 
   block_public_acls       = true
   block_public_policy     = true
@@ -498,9 +621,13 @@ resource "aws_s3_bucket_public_access_block" "static" {
   restrict_public_buckets = true
 }
 
-data "aws_caller_identity" "current" {}
+data "aws_caller_identity" "current" {
+  provider = aws.dev
+}
+
 # CloudFront OAC
 resource "aws_cloudfront_origin_access_control" "static" {
+  provider                          = aws.dev
   name                              = "terraform-portfolio-oac"
   origin_access_control_origin_type = "s3"
   signing_behavior                  = "always"
@@ -509,6 +636,7 @@ resource "aws_cloudfront_origin_access_control" "static" {
 
 # CloudFront Distribution
 resource "aws_cloudfront_distribution" "static" {
+  provider            = aws.dev
   enabled             = true
   default_root_object = "index.html"
 
@@ -547,7 +675,8 @@ resource "aws_cloudfront_distribution" "static" {
 
 # S3 バケットポリシー - CloudFrontのみ許可
 resource "aws_s3_bucket_policy" "static" {
-  bucket = aws_s3_bucket.static.id
+  provider = aws.dev
+  bucket   = aws_s3_bucket.static.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -569,21 +698,10 @@ resource "aws_s3_bucket_policy" "static" {
     ]
   })
 }
-# KMS
-resource "aws_kms_key" "s3" {
-  description             = "S3暗号化用CMK"
-  deletion_window_in_days = 7
-
-  tags = { Name = "terraform-portfolio-kms" }
-}
-
-resource "aws_kms_alias" "s3" {
-  name          = "alias/terraform-portfolio-s3"
-  target_key_id = aws_kms_key.s3.key_id
-}
 
 # Secrets Manager
 resource "aws_secretsmanager_secret" "dummy" {
+  provider    = aws.dev
   name        = "terraform-portfolio/practice-secret"
   description = "練習用シークレット"
   kms_key_id  = aws_kms_key.s3.id
@@ -592,17 +710,22 @@ resource "aws_secretsmanager_secret" "dummy" {
 }
 
 resource "aws_secretsmanager_secret_version" "dummy" {
-  secret_id     = aws_secretsmanager_secret.dummy.id
+  provider  = aws.dev
+  secret_id = aws_secretsmanager_secret.dummy.id
   secret_string = jsonencode({ db_password = "dummy-password-123" })
 }
+
 # Route53 Hosted Zone
 resource "aws_route53_zone" "main" {
-  name = "portfolio-aws-solutions.site"
+  provider = aws.dev
+  name     = "portfolio-aws-solutions.site"
 
   tags = { Name = "terraform-portfolio-zone" }
 }
-# Route53 Health Check - ALB監視
+
+# Route53 Health Check
 resource "aws_route53_health_check" "alb" {
+  provider          = aws.dev
   fqdn              = aws_lb.main.dns_name
   port              = 80
   type              = "HTTP"
@@ -615,9 +738,10 @@ resource "aws_route53_health_check" "alb" {
 
 # Route53 Failover PRIMARY
 resource "aws_route53_record" "primary" {
-  zone_id = aws_route53_zone.main.zone_id
-  name    = "portfolio-aws-solutions.site"
-  type    = "A"
+  provider = aws.dev
+  zone_id  = aws_route53_zone.main.zone_id
+  name     = "portfolio-aws-solutions.site"
+  type     = "A"
 
   failover_routing_policy {
     type = "PRIMARY"
@@ -635,9 +759,10 @@ resource "aws_route53_record" "primary" {
 
 # Route53 Failover SECONDARY
 resource "aws_route53_record" "secondary" {
-  zone_id = aws_route53_zone.main.zone_id
-  name    = "portfolio-aws-solutions.site"
-  type    = "A"
+  provider = aws.dev
+  zone_id  = aws_route53_zone.main.zone_id
+  name     = "portfolio-aws-solutions.site"
+  type     = "A"
 
   failover_routing_policy {
     type = "SECONDARY"
@@ -651,21 +776,11 @@ resource "aws_route53_record" "secondary" {
     evaluate_target_health = false
   }
 }
-# Lambda 関数
-resource "aws_lambda_function" "main" {
-  filename      = "lambda.zip"
-  function_name = "terraform-portfolio-lambda"
-  role          = aws_iam_role.lambda.arn
-  handler       = "index.handler"
-  runtime       = "python3.12"
-  publish       = true
-
-  tags = { Name = "terraform-portfolio-lambda" }
-}
 
 # IAM Role - Lambda用
 resource "aws_iam_role" "lambda" {
-  name = "lambda-role"
+  provider = aws.dev
+  name     = "lambda-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -678,24 +793,83 @@ resource "aws_iam_role" "lambda" {
 }
 
 resource "aws_iam_role_policy_attachment" "lambda" {
+  provider   = aws.dev
   role       = aws_iam_role.lambda.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-# Lambda Alias - Canary
+resource "aws_iam_role_policy" "lambda_sqs" {
+  provider = aws.dev
+  name     = "lambda-sqs-policy"
+  role     = aws_iam_role.lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage",
+          "sqs:GetQueueAttributes",
+        ]
+        Resource = aws_sqs_queue.main.arn
+      }
+    ]
+  })
+}
+
+# Lambda 関数
+resource "aws_lambda_function" "main" {
+  provider      = aws.dev
+  filename      = "lambda.zip"
+  function_name = "terraform-portfolio-lambda"
+  role          = aws_iam_role.lambda.arn
+  handler       = "index.handler"
+  runtime       = "python3.12"
+  publish       = true
+
+  tags = { Name = "terraform-portfolio-lambda" }
+}
+
+# Lambda Alias
 resource "aws_lambda_alias" "live" {
+  provider         = aws.dev
   name             = "live"
   function_name    = aws_lambda_function.main.function_name
   function_version = aws_lambda_function.main.version
 }
 
+# IAM Role - CodeDeploy用
+resource "aws_iam_role" "codedeploy" {
+  provider = aws.dev
+  name     = "codedeploy-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "codedeploy.amazonaws.com" }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "codedeploy" {
+  provider   = aws.dev
+  role       = aws_iam_role.codedeploy.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRoleForLambda"
+}
+
 # CodeDeploy
 resource "aws_codedeploy_app" "lambda" {
+  provider         = aws.dev
   name             = "terraform-portfolio-lambda"
   compute_platform = "Lambda"
 }
 
 resource "aws_codedeploy_deployment_group" "lambda" {
+  provider               = aws.dev
   app_name               = aws_codedeploy_app.lambda.name
   deployment_group_name  = "terraform-portfolio-dg"
   service_role_arn       = aws_iam_role.codedeploy.arn
@@ -712,27 +886,9 @@ resource "aws_codedeploy_deployment_group" "lambda" {
   }
 }
 
-# IAM Role - CodeDeploy用
-resource "aws_iam_role" "codedeploy" {
-  name = "codedeploy-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Action    = "sts:AssumeRole"
-      Effect    = "Allow"
-      Principal = { Service = "codedeploy.amazonaws.com" }
-    }]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "codedeploy" {
-  role       = aws_iam_role.codedeploy.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRoleForLambda"
-}
-
-# CloudWatch Alarm
+# CloudWatch Alarm - Lambda
 resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
+  provider            = aws.dev
   alarm_name          = "terraform-portfolio-lambda-errors"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 1
@@ -749,6 +905,72 @@ resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
 
   tags = { Name = "terraform-portfolio-lambda-alarm" }
 }
+
+# SQS - メインキュー
+resource "aws_sqs_queue" "main" {
+  provider                   = aws.dev
+  name                       = "terraform-portfolio-queue"
+  visibility_timeout_seconds = 30
+  message_retention_seconds  = 86400
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.dlq.arn
+    maxReceiveCount     = 3
+  })
+
+  tags = { Name = "terraform-portfolio-queue" }
+}
+
+# SQS - DLQ
+resource "aws_sqs_queue" "dlq" {
+  provider                  = aws.dev
+  name                      = "terraform-portfolio-dlq"
+  message_retention_seconds = 604800
+
+  tags = { Name = "terraform-portfolio-dlq" }
+}
+
+# Lambda - SQS処理用
+resource "aws_lambda_function" "sqs_processor" {
+  provider      = aws.dev
+  filename      = "lambda.zip"
+  function_name = "terraform-portfolio-sqs-processor"
+  role          = aws_iam_role.lambda.arn
+  handler       = "index.handler"
+  runtime       = "python3.12"
+  publish       = true
+
+  tags = { Name = "terraform-portfolio-sqs-processor" }
+}
+
+# Lambda - SQSトリガー
+resource "aws_lambda_event_source_mapping" "sqs" {
+  provider         = aws.dev
+  event_source_arn = aws_sqs_queue.main.arn
+  function_name    = aws_lambda_function.sqs_processor.arn
+  batch_size       = 10
+  enabled          = true
+}
+
+# CloudWatch Alarm - DLQ監視
+resource "aws_cloudwatch_metric_alarm" "dlq_messages" {
+  provider            = aws.dev
+  alarm_name          = "terraform-portfolio-dlq-alarm"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  namespace           = "AWS/SQS"
+  period              = 60
+  statistic           = "Sum"
+  threshold           = 0
+  alarm_description   = "DLQにメッセージが入ったら通知"
+
+  dimensions = {
+    QueueName = aws_sqs_queue.dlq.name
+  }
+
+  tags = { Name = "terraform-portfolio-dlq-alarm" }
+}
+
 # CloudTrail - Organization Trail
 resource "aws_cloudtrail" "main" {
   name                          = "terraform-portfolio-trail"
@@ -786,47 +1008,35 @@ resource "aws_s3_bucket_policy" "cloudtrail" {
       {
         Sid    = "AWSCloudTrailAclCheck"
         Effect = "Allow"
-        Principal = {
-          Service = "cloudtrail.amazonaws.com"
-        }
+        Principal = { Service = "cloudtrail.amazonaws.com" }
         Action   = "s3:GetBucketAcl"
         Resource = aws_s3_bucket.cloudtrail.arn
       },
       {
         Sid    = "AWSCloudTrailWrite"
         Effect = "Allow"
-        Principal = {
-          Service = "cloudtrail.amazonaws.com"
-        }
+        Principal = { Service = "cloudtrail.amazonaws.com" }
         Action   = "s3:PutObject"
         Resource = "${aws_s3_bucket.cloudtrail.arn}/AWSLogs/*"
         Condition = {
-          StringEquals = {
-            "s3:x-amz-acl" = "bucket-owner-full-control"
-          }
+          StringEquals = { "s3:x-amz-acl" = "bucket-owner-full-control" }
         }
       },
       {
         Sid    = "AWSConfigBucketPermissionsCheck"
         Effect = "Allow"
-        Principal = {
-          Service = "config.amazonaws.com"
-        }
+        Principal = { Service = "config.amazonaws.com" }
         Action   = "s3:GetBucketAcl"
         Resource = aws_s3_bucket.cloudtrail.arn
       },
       {
         Sid    = "AWSConfigBucketDelivery"
         Effect = "Allow"
-        Principal = {
-          Service = "config.amazonaws.com"
-        }
+        Principal = { Service = "config.amazonaws.com" }
         Action   = "s3:PutObject"
         Resource = "${aws_s3_bucket.cloudtrail.arn}/AWSLogs/*"
         Condition = {
-          StringEquals = {
-            "s3:x-amz-acl" = "bucket-owner-full-control"
-          }
+          StringEquals = { "s3:x-amz-acl" = "bucket-owner-full-control" }
         }
       }
     ]
@@ -879,46 +1089,6 @@ resource "aws_iam_role_policy_attachment" "config" {
 # Security Hub
 resource "aws_securityhub_account" "main" {}
 
-# SCP強化 - CloudTrail/Config保護
-resource "aws_organizations_policy" "audit_protection" {
-  name        = "audit-protection"
-  description = "CloudTrail削除禁止・Config停止禁止"
-  type        = "SERVICE_CONTROL_POLICY"
-
-  content = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "DenyCloudTrailDelete"
-        Effect = "Deny"
-        Action = [
-          "cloudtrail:DeleteTrail",
-          "cloudtrail:StopLogging",
-        ]
-        Resource = "*"
-      },
-      {
-        Sid    = "DenyConfigStop"
-        Effect = "Deny"
-        Action = [
-          "config:StopConfigurationRecorder",
-          "config:DeleteConfigurationRecorder",
-        ]
-        Resource = "*"
-      }
-    ]
-  })
-}
-
-resource "aws_organizations_policy_attachment" "audit_protection_dev" {
-  policy_id = aws_organizations_policy.audit_protection.id
-  target_id = aws_organizations_organizational_unit.dev.id
-}
-
-resource "aws_organizations_policy_attachment" "audit_protection_shared" {
-  policy_id = aws_organizations_policy.audit_protection.id
-  target_id = aws_organizations_organizational_unit.shared.id
-}
 # GuardDuty
 resource "aws_guardduty_detector" "main" {
   enable = true
@@ -967,84 +1137,4 @@ resource "aws_iam_role" "backup" {
 resource "aws_iam_role_policy_attachment" "backup" {
   role       = aws_iam_role.backup.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup"
-}
-# SQS - メインキュー
-resource "aws_sqs_queue" "main" {
-  name                       = "terraform-portfolio-queue"
-  visibility_timeout_seconds = 30
-  message_retention_seconds  = 86400
-  redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.dlq.arn
-    maxReceiveCount     = 3
-  })
-
-  tags = { Name = "terraform-portfolio-queue" }
-}
-
-# SQS - DLQ
-resource "aws_sqs_queue" "dlq" {
-  name                      = "terraform-portfolio-dlq"
-  message_retention_seconds = 604800
-
-  tags = { Name = "terraform-portfolio-dlq" }
-}
-
-# Lambda - SQS処理用
-resource "aws_lambda_function" "sqs_processor" {
-  filename      = "lambda.zip"
-  function_name = "terraform-portfolio-sqs-processor"
-  role          = aws_iam_role.lambda.arn
-  handler       = "index.handler"
-  runtime       = "python3.12"
-  publish       = true
-
-  tags = { Name = "terraform-portfolio-sqs-processor" }
-}
-
-# Lambda - SQSトリガー
-resource "aws_lambda_event_source_mapping" "sqs" {
-  event_source_arn = aws_sqs_queue.main.arn
-  function_name    = aws_lambda_function.sqs_processor.arn
-  batch_size       = 10
-  enabled          = true
-}
-
-# IAM - LambdaにSQS権限追加
-resource "aws_iam_role_policy" "lambda_sqs" {
-  name = "lambda-sqs-policy"
-  role = aws_iam_role.lambda.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "sqs:ReceiveMessage",
-          "sqs:DeleteMessage",
-          "sqs:GetQueueAttributes",
-        ]
-        Resource = aws_sqs_queue.main.arn
-      }
-    ]
-  })
-}
-
-# CloudWatch Alarm - DLQ監視
-resource "aws_cloudwatch_metric_alarm" "dlq_messages" {
-  alarm_name          = "terraform-portfolio-dlq-alarm"
-  comparison_operator = "GreaterThanThreshold"
-  evaluation_periods  = 1
-  metric_name         = "ApproximateNumberOfMessagesVisible"
-  namespace           = "AWS/SQS"
-  period              = 60
-  statistic           = "Sum"
-  threshold           = 0
-  alarm_description   = "DLQにメッセージが入ったら通知"
-
-  dimensions = {
-    QueueName = aws_sqs_queue.dlq.name
-  }
-
-  tags = { Name = "terraform-portfolio-dlq-alarm" }
 }
