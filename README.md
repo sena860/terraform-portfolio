@@ -2,13 +2,14 @@ AWS Multi-Account Infrastructure as Code | Terraform
 
 ## 目的
 
-本リポジトリは、企業規模のAWS基盤をTerraformにより再現し、以下の観点で本番運用可能なアーキテクチャを構築することを目的とする。
+本リポジトリは、AWS Certified Solutions Architect - Professional（SAP）で学習した設計思想を、Terraformを用いてInfrastructure as Codeとして再現することを目的とする。
+企業で求められる設計・運用を意識し、以下の観点でAWS基盤を段階的に構築する。
 
-- マルチアカウント戦略
-- 高可用性
-- セキュリティ
-- 運用自動化
-- IaCによる再現性・変更管理
+マルチアカウント戦略
+高可用性
+セキュリティ
+運用自動化
+IaCによる再現性・変更管理
 
 AWS Organizationsを中心に、ガバナンス・ネットワーク・アプリ基盤・セキュリティ・運用監査まで段階的に実装する。
 
@@ -51,14 +52,14 @@ AWS Organizations
 
 | バージョン | 内容 | ステータス |
 |---|---|---|
-| v1.0.0 | Organizations / SCP / IAM Identity Center | ✅ 実装済み |
-| v1.1.0 | VPC / ALB / ASG / EC2 / SSM Session Manager | ✅ 実装済み |
-| v1.2.0 | CloudFront / S3 / Route53 / KMS / Secrets Manager | ✅ 実装済み |
-| v1.3.0 | Lambda Canary Deploy | ✅ 実装済み |
-| v1.4.0 | CloudTrail / Config / Security Hub / SCP強化 | ✅ 実装済み |
-| v1.5.0 | GuardDuty / Backup | ✅ 実装済み |
-| v1.6.0 | SQS / DLQ / Lambda非同期処理 | ✅ 実装済み |
-| v2.0.0 | S3 Data Lake / Glue / Athena / Lake Formation | 🔧 実装予定 |
+| v1.0.0 | Organizations / SCP / IAM Identity Center | 実装済み |
+| v1.1.0 | VPC / ALB / ASG / EC2 / SSM Session Manager | 実装済み |
+| v1.2.0 | CloudFront / S3 / Route53 / KMS / Secrets Manager | 実装済み |
+| v1.3.0 | Lambda Canary Deploy | 実装済み |
+| v1.4.0 | CloudTrail / Config / Security Hub / SCP強化 | 実装済み |
+| v1.5.0 | GuardDuty / Backup | 実装済み |
+| v1.6.0 | SQS / DLQ / Lambda非同期処理 | 実装済み |
+| v2.0.0 | S3 Data Lake / Glue / Athena / Lake Formation | 実装予定 |
 
 ## 設計思想
 
@@ -74,27 +75,33 @@ Organizationsにより環境ごとの権限境界を確立し、SCPによって�
 
 ### なぜ SCP？
 
-IAMポリシーはアカウント管理者が緩める可能性がある。SCPは管理アカウントから強制適用される絶対的な制御のため、どのIAMエンティティも回避できない。高額サービスのDeny・IAM ユーザー作成禁止により、コスト事故・権限事故を構造的に防止する。
+IAMポリシーはアカウント管理者の設定変更で意図せず緩む可能性がある。
+SCPは管理アカウントから強制適用されるため、
+どのIAMエンティティも例外なく従うガードレールとして機能する。
+高額サービスの利用禁止やIAMユーザー作成禁止を組織レベルで固定化することで、
+コスト事故・権限事故を構造的に防止できる。
 
 ### なぜ Private Subnet？
 
-EC2をPublic Subnetに置くと攻撃面が増大する。本構成ではALBをDMZとして配置し、EC2はPrivate Subnetに隔離。インバウンドはALB経由のみ、アクセスはSSM Session Managerのみとすることで最小権限・ゼロトラストに近い構成を実現。
+EC2をPublic Subnetに置くと攻撃面が広がる。本構成ではALBをDMZとして前段に置き、EC2はPrivate Subnetに隔離している。インバウンドはALB経由のみ、運用アクセスはSSM Session Managerに限定し、最小権限とゼロトラストに近い構成をとっている。
 
 ### なぜ SSM Session Manager？
 
-踏み台サーバはSSH鍵管理・SG管理・OS パッチ適用・ログ監査の運用コストが高い。SSMはIAM権限のみで接続を制御でき、セッションログは CloudTrailに自動記録される。鍵管理ゼロ・踏み台不要・証跡自動化を実現。
+踏み台サーバはSSH鍵管理・SG管理・OS パッチ適用・ログ監査の運用コストが高い。SSMはIAM権限のみで接続を制御でき、セッションログもCloudTrailに自動記録されるため鍵管理ゼロ・踏み台不要・証跡自動化を実現できる。
 
 ### なぜ CloudFront？
 
-S3を直接公開すると誤公開リスクが高い。CloudFrontを前段に配置しOACによりS3への直接アクセスを完全遮断。エッジキャッシュで高速配信を実現する。OAI旧方式は非推奨のため採用しない。
+S3を直接公開すると誤公開リスクが高い。CloudFrontを前段に配置しOACによりS3への直接アクセスを完全に遮断する。エッジキャッシュで高速配信も可能でOAI旧方式は非推奨のため採用しない。
 
 ### なぜ Canary Deploy？
 
-一括デプロイは障害時の影響範囲が大きい。Canaryでは新バージョンへのトラフィックを10%に限定し、CloudWatch Alarmが閾値超過を検知した時点で CodeDeployが自動的に旧バージョンへ切り戻す。安全な段階的リリースを実現。
+一括デプロイは障害時の影響範囲が大きい。Canaryでは新バージョンへのトラフィックを10%に限定し、CloudWatch Alarmが閾値超過を検知した時点で CodeDeployが自動的に旧バージョンへ切り戻す。安全な段階的リリースを行うための構成。
 
 ### なぜ IAM Identity Center？
 
-IAMユーザーはアカウントごとに管理が必要で鍵の使い回し・権限肥大化が起きやすい。Identity Centerにより組織全体のアクセスをSSOに統一し、Permission Setによる最小権限管理・鍵管理不要のゼロトラストに近いアクセス管理を実現する。
+IAMユーザーはアカウントごとに管理が必要で鍵の使い回し・権限肥大化が起きやすい。Identity Centerにより組織全体のアクセスをSSOに統一し、Permission Setで最小権限を制御することで、鍵管理不要のゼロトラストに近いアクセス制御ができる。
+Identity CenterはTerraform destroy時に依存関係が壊れやすく、実際に本構成でも削除エラーが発生したため、実務と同様にGUI管理としIaC対象外としている。
+
 
 ## アカウント構成
 
@@ -106,8 +113,32 @@ IAMユーザーはアカウントごとに管理が必要で鍵の使い回し�
 
 ## 今後の改善
 
+### 機能追加
+
 - v2.0.0: S3 Data Lake / Glue / Athena / Lake Formation
 - Transit Gateway による Hub-and-Spoke 構成
 - GitHub Actions CI/CD（fmt / validate / plan / tfsec / checkov）
-- Security Hub の自動化ルール追加
-- IAM Identity Center の Permission Set 最適化
+
+### 対応済み
+
+#### ✅ マルチアカウントのプロバイダ分離
+
+`assume_role` を使用して Dev アカウント（sena2）の `OrganizationAccountAccessRole` にスイッチし、VPC / EC2 / ALB 等のリソースを Dev アカウント側に分離済み。
+
+```hcl
+provider "aws" {
+  alias  = "dev"
+  assume_role {
+    role_arn = "arn:aws:iam::482178843450:role/OrganizationAccountAccessRole"
+  }
+}
+```
+
+#### ✅ KMS と S3 / CloudFront の結合
+
+- `aws_s3_bucket_server_side_encryption_configuration` による S3 への KMS 適用済み
+- KMS キーポリシーへの `cloudfront.amazonaws.com` の `kms:Decrypt` 権限付与済み
+
+#### ✅ Canary Deploy スティッキーセッション対応
+
+ALB ターゲットグループに Cookie ベースのスティッキーセッションを有効化。同一ユーザーがデプロイ完了まで同一バージョンにアクセスし続けられる構成に対応済み。
