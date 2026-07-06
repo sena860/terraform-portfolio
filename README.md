@@ -84,7 +84,12 @@ S3を直接公開すると誤公開リスクが高い。CloudFrontを前段に�
 
 ### なぜ Route53 Failover？
 
-PRIMARY（ALB）のヘルスチェックが失敗した際に、SECONDARY（CloudFront + S3静的ページ）へ自動切替するアクティブ/パッシブ構成を採用している。アプリ障害時にメンテナンスページを表示するDR構成をIaC化することで、ゼロダウンタイムの障害対応を実現する。
+単一ルーティングではALBやアプリの障害時にエラー画面（502等）が露出し、機会損失に直結する。本構成では、PRIMARY（ALB）の異常検知時にSECONDARY（CloudFront + S3静的メンテ画面）へ自動で切り替えるアクティブ/パッシブ（フェイルオーバー）構成を採用している。
+
+* **自動ソーリーページ遷移（DR対応）**
+Route 53ヘルスチェックのトリガーにより、手動介入なしでユーザーを「メンテナンス画面」へ安全に誘導する仕組みをIaC化。
+* **RTO（目標復旧時間）極小化のトレードオフ理解**
+DNSキャッシュや判定猶予による数分間のダウンタイム（技術的トレードオフ）を認識した上で、手動オペレーションミスを排除し、数分以内での「自動復旧」を確実に担保する設計。
 
 ### なぜ IAM Identity Center？
 
@@ -100,13 +105,18 @@ IAMユーザーはアカウントごとに管理が必要で鍵の使い回し�
 
 ## 今後の改善
 
-### 機能追加
+#### 機能拡張（v2.0.0）
+* **データレイク基盤の構築**: S3 Data Lake / Glue / Athena / Lake Formation を用いたログ・データ分析基盤を、Devではなく独立した分析アカウントへ集約・構築する。
+* **CloudFrontオリジングループによる高速DR化**: Route 53のDNS切り替えラグ（数分間）をさらに削るため、CloudFront側でALBのエラー（502/503等）をフックにミリ秒単位でS3へフェイルオーバーさせる構成への拡張。
+* **ネットワーク拡張**: Transit GatewayによるHub-and-Spoke構成への移行。
+* **CI/CDパイプライン**: GitHub Actionsを用いた自動静的解析（fmt / validate / plan / tfsec / checkov）の実装。
 
-- v2.0.0: S3 Data Lake / Glue / Athena / Lake Formation（Sharedアカウントへの集約を検討）
-- Transit Gatewayによる Hub-and-Spoke構成
-- GitHub Actions CI/CD（fmt / validate / plan / tfsec / checkov）
-- Config Recorderのマルチリージョン展開時に `include_global_resource_types = false` を適用しコスト重複を防止
-- SQS `visibility_timeout_seconds` をLambdaタイムアウトの6倍以上に設定（AWS公式推奨）
+#### コスト・運用最適化
+* **Configのコスト防御**: 今後のマルチリージョン展開時、プライマリ以外のリージョンで `include_global_resource_types = false` を適用し、グローバルリソースの重複記録による課金を防止。
+* **メッセージ処理の堅牢化**: SQSの `visibility_timeout_seconds` を、処理するLambdaのタイムアウト値の6倍以上に再設計し、メッセージの重複処理（ゴースト化）を構造的に防止。
+#### コスト・運用最適化
+* **Configのコスト防御**: 今後のマルチリージョン展開時、プライマリ以外のリージョンで `include_global_resource_types = false` を適用し、グローバルリソースの重複記録による課金を防止。
+* **メッセージ処理の堅牢化**: SQSの `visibility_timeout_seconds` を、処理するLambdaのタイムアウト値の6倍以上に再設計し、メッセージの重複処理（ゴースト化）を構造的に防止。
 
 ### 対応済み
 
