@@ -134,11 +134,11 @@ provider "aws" {
 }
 ```
 
-#### ✅ KMS と S3 / CloudFront の結合
+#### ✅ KMS と S3 / CloudFrontの結合
 
-- `aws_s3_bucket_server_side_encryption_configuration` による S3 への KMS 適用済み
-- KMS キーポリシーへの `cloudfront.amazonaws.com` の `kms:Decrypt` 権限付与済み
+- `aws_s3_bucket_server_side_encryption_configuration` によるS3へのKMS適用済み
+- KMSキーポリシーへの `cloudfront.amazonaws.com` の `kms:Decrypt` 権限付与済み
 
-#### ✅ Canary Deploy スティッキーセッション対応
+#### ✅ Canary Deployスティッキーセッション対応
 
-ALB ターゲットグループに Cookie ベースのスティッキーセッションを有効化。同一ユーザーがデプロイ完了まで同一バージョンにアクセスし続けられる構成に対応済み。
+ALBターゲットグループにCookieベースのスティッキーセッションを有効化。同一ユーザーがデプロイ完了まで同一バージョンにアクセスし続けられる構成に対応済み。
