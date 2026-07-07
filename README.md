@@ -17,6 +17,7 @@ AWS Organizationsを中心に、ガバナンス・ネットワーク・アプリ
 
 ## アーキテクチャ
 
+```text
 AWS Organizations
 │
 ├── Management (sena)
@@ -62,7 +63,7 @@ AWS Organizations
     │
     └── SQS
         └── DLQ
-
+```text
 ## バージョン履歴
 
 | バージョン | 内容 | ステータス |
