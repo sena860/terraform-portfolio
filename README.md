@@ -50,7 +50,7 @@ AWS Organizations
     │
     ├── EC2
     │
-    ├── SSM
+    ├── SSM Session Manager
     │
     ├── CloudFront
     │
@@ -63,7 +63,7 @@ AWS Organizations
     │
     └── SQS
         └── DLQ
-```text
+
 ## バージョン履歴
 
 | バージョン | 内容 | ステータス |
