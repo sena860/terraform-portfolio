@@ -65,7 +65,7 @@ AWS Organizations
         └── DLQ
 
 ## バージョン履歴
-
+```text
 | バージョン | 内容 | ステータス |
 |---|---|---|
 | v1.0.0 | Organizations / SCP / IAM Identity Center | ✅ 実装済み |
