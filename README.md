@@ -65,7 +65,7 @@ AWS Organizations
         └── DLQ
 
 ## バージョン履歴
-```text
+
 | バージョン | 内容 | ステータス |
 |---|---|---|
 | v1.0.0 | Organizations / SCP / IAM Identity Center | ✅ 実装済み |
@@ -167,3 +167,5 @@ provider "aws" {
 #### ✅ Canary Deployスティッキーセッション対応
 
 ALBターゲットグループにCookieベースのスティッキーセッションを有効化。同一ユーザーがデプロイ完了まで同一バージョンにアクセスし続けられる構成に対応済み。
+
+```text
