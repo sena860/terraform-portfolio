@@ -19,21 +19,49 @@ AWS Organizationsを中心に、ガバナンス・ネットワーク・アプリ
 
 AWS Organizations
 │
-├─ Management (sena)
-│   ├─ SCP（コスト保護 / ガバナンス）
-│   ├─ CloudTrail（Organization Trail）
-│   ├─ Config Aggregator
-│   ├─ Security Hub
-│   └─ GuardDuty
+├── Management (sena)
+│   │
+│   ├── SCP
+│   │   └── コスト保護 / ガバナンス
+│   │
+│   ├── CloudTrail
+│   │   └── Organization Trail
+│   │
+│   ├── Config Aggregator
+│   │
+│   ├── Security Hub
+│   │
+│   └── GuardDuty
 │
-├─ Shared OU（将来拡張予定）
-│   └─ IAM Identity Center（SSO）
+├── Shared OU
+│   └── 将来拡張予定
 │
-└─ Dev OU
-├─ VPC / ALB / ASG / EC2 / SSM
-├─ CloudFront / S3 / Route53
-├─ Lambda Canary Deploy
-└─ SQS / DLQ
+├── IAM Identity Center
+│   └── SSO
+│
+└── Dev OU
+    │
+    ├── VPC
+    │
+    ├── ALB
+    │
+    ├── ASG
+    │
+    ├── EC2
+    │
+    ├── SSM
+    │
+    ├── CloudFront
+    │
+    ├── S3
+    │
+    ├── Route53
+    │
+    ├── Lambda
+    │   └── Canary Deploy
+    │
+    └── SQS
+        └── DLQ
 
 ## バージョン履歴
 
