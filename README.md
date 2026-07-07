@@ -17,7 +17,6 @@ AWS Organizationsを中心に、ガバナンス・ネットワーク・アプリ
 
 ## アーキテクチャ
 
-```text
 AWS Organizations
 │
 ├── Management (sena)
@@ -167,5 +166,3 @@ provider "aws" {
 #### ✅ Canary Deployスティッキーセッション対応
 
 ALBターゲットグループにCookieベースのスティッキーセッションを有効化。同一ユーザーがデプロイ完了まで同一バージョンにアクセスし続けられる構成に対応済み。
-
-```text
