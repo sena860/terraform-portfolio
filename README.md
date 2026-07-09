@@ -17,8 +17,6 @@ AWS Organizationsを中心に、ガバナンス・ネットワーク・アプリ
 
 ## アーキテクチャ
 
-## アーキテクチャ
-
 ```
 AWS Organizations
 │
