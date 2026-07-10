@@ -164,7 +164,7 @@ IAMユーザーはアカウントごとに管理が必要で鍵の使い回し�
 
 ### IAM Identity Center の IaC管理断念
 
-Terraform destroyを実行した際、Identity Centerのpermission_setリソースが依存関係の問題で削除エラーを繰り返した。IAMユーザーに`sso:DescribePermissionSet`権限がなく、またIdentity Center自体がリージョン横断的な管理構造を持つため、Terraformのstateとの整合が取れなかった。学習環境ではTerraform destroy時の依存関係エラーが発生したため、GUI管理とした。
+Terraform destroyを実行した際、Identity CenterのPermission Setに関連するリソースで削除エラーが発生した。依存関係やTerraform Providerの制約により、stateとの整合を維持したまま管理することが難しかったため、学習環境ではIdentity CenterをIaC対象外とし、GUIで管理する方針とした。
 
 ### OrganizationAccountAccessRole の手動作成
 
@@ -212,3 +212,8 @@ provider "aws" {
 #### ✅ Canary Deploy スティッキーセッション対応
 
 ALBターゲットグループにCookieベースのスティッキーセッションを有効化。同一ユーザーがデプロイ完了まで同一バージョンにアクセスし続けられる構成に対応済み。
+
+## 学んだこと
+・AWSサービスは設計だけでは分からない制約が多く、実際の構築で理解が深まった。
+・Terraformではサービス仕様だけでなくProviderの制約も考慮する必要があった。
+・設計→構築→エラー解析→改善を繰り返すことで、IaCによるAWS構築の理解を深められた。
