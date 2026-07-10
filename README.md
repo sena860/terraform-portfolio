@@ -37,6 +37,51 @@ AWS Organizations
     └─ SQS / DLQ
 ```
 
+##　モジュール構成
+
+```
+terraform-portfolio/
+├── modules/
+│   ├── organizations/   # Organizations / OU / SCP
+│   ├── vpc/             # VPC / Subnet / IGW / NAT / Route Table
+│   ├── security_group/  # ALB / EC2 / VPCEndpoint 用 SG
+│   ├── alb/             # ALB / Target Group / Listener
+│   ├── ec2/             # Launch Template / ASG / IAM Role
+│   ├── ssm/             # VPC Endpoint（SSM）
+│   ├── s3/              # S3 / SSE-KMS / Bucket Policy
+│   ├── cloudfront/      # CloudFront Distribution / OAC
+│   ├── route53/         # Hosted Zone / Health Check / Failover
+│   ├── lambda/          # Lambda / Alias / CodeDeploy / CW Alarm
+│   ├── sqs/             # SQS / DLQ / Event Source Mapping
+│   ├── cloudtrail/      # Organization Trail
+│   ├── config/          # Config Recorder / Delivery Channel
+│   └── guardduty/       # GuardDuty Detector
+└── main.tf              # 全リソースのエントリーポイント
+```
+
+## State管理
+
+現状はローカルStateで管理している。実務を想定した改善として以下を今後対応予定。
+
+| 項目 | 現状 | 実務想定 |
+|---|---|---|
+| Backend | local | S3 Backend |
+| バージョニング | なし | S3 Versioning有効 |
+| ロック | なし | DynamoDB Lock |
+
+```hcl
+# 実務想定のbackend設定（今後対応予定）
+terraform {
+  backend "s3" {
+    bucket         = "terraform-state-bucket"
+    key            = "portfolio/terraform.tfstate"
+    region         = "ap-northeast-1"
+    dynamodb_table = "terraform-lock"
+    encrypt        = true
+  }
+}
+```
+
 ## バージョン履歴
 
 | バージョン | 内容 | ステータス |
@@ -49,6 +94,21 @@ AWS Organizations
 | v1.5.0 | GuardDuty / Backup | ✅ 実装済み |
 | v1.6.0 | SQS / DLQ / Lambda非同期処理 | ✅ 実装済み |
 | v2.0.0 | S3 Data Lake / Glue / Athena / Lake Formation | 🔧 実装予定 |
+
+## 検証コスト
+
+個人検証環境のためコストを意識した設計にしている。
+
+| リソース | 月額目安 | 対策 |
+|---|---|---|
+| NAT Gateway | $32〜/個 | 検証後すぐ `terraform destroy` |
+| ALB | $16〜 | 検証後すぐ `terraform destroy` |
+| VPC Endpoint | $7〜/個 | 検証後すぐ `terraform destroy` |
+| EC2 (t3.micro) | 無料枠内 | そのまま |
+| S3 / CloudFront / Lambda | ほぼ無料 | 常時起動 |
+| GuardDuty | 30日無料枠 | 無料枠内で完結 |
+
+常時起動リソースはS3・CloudFront・Lambda・SQS・KMSのみに絞り、月額数百円以下で運用している。NAT GatewayやALBは検証時のみ起動し、終了後は即destroyする運用を徹底している。
 
 ## 設計思想
 
@@ -86,12 +146,7 @@ S3を直接公開すると誤公開リスクが高い。CloudFrontを前段に�
 
 ### なぜ Route53 Failover？
 
-単一ルーティングではALBやアプリの障害時にエラー画面（502等）が露出し、機会損失に直結する。本構成では、PRIMARY（ALB）の異常検知時にSECONDARY（CloudFront + S3静的メンテ画面）へ自動で切り替えるアクティブ/パッシブ（フェイルオーバー）構成を採用している。
-
-* **自動ソーリーページ遷移（DR対応）**
-Route 53ヘルスチェックのトリガーにより、手動介入なしでユーザーを「メンテナンス画面」へ安全に誘導する仕組みをIaC化。
-* **RTO（目標復旧時間）極小化のトレードオフ理解**
-DNSキャッシュや判定猶予による数分間のダウンタイム（技術的トレードオフ）を認識した上で、手動オペレーションミスを排除し、数分以内での「自動復旧」を確実に担保する設計。
+単一ルーティングではALBやアプリの障害時にエラー画面（502等）が露出し、機会損失に直結する。本構成では、PRIMARY（ALB）の異常検知時にSECONDARY（CloudFront + S3静的メンテ画面）へ自動で切り替えるアクティブ/パッシブ構成を採用している。Route53ヘルスチェックのトリガーにより、手動介入なしでユーザーをメンテナンス画面へ安全に誘導する仕組みをIaC化している。
 
 ### なぜ IAM Identity Center？
 
@@ -105,23 +160,40 @@ IAMユーザーはアカウントごとに管理が必要で鍵の使い回し�
 | sena2（Dev） | Dev Account | アプリ基盤・検証環境 |
 | Shared（将来追加） | Shared Account | Transit Gateway・共通基盤 |
 
+## 構築で直面した問題と解決
+
+### IAM Identity Center の IaC管理断念
+
+Terraform destroyを実行した際、Identity Centerのpermission_setリソースが依存関係の問題で削除エラーを繰り返した。IAMユーザーに`sso:DescribePermissionSet`権限がなく、またIdentity Center自体がリージョン横断的な管理構造を持つため、Terraformのstateとの整合が取れなかった。実務でもIdentity CenterはGUI管理とする組織が多いため、stateから除外しコンソール管理に切り替えた。
+
+### OrganizationAccountAccessRole の手動作成
+
+既存アカウントをOrganizationsに招待した場合、`OrganizationAccountAccessRole`は自動作成されない。新規作成時のみ自動生成されるため、sena2アカウントに手動でロールを作成し、ManagementアカウントからのAssumeRoleを許可した上でTerraformのprovider設定に組み込んだ。
+
+### assume_role によるプロバイダ分離
+
+当初は単一providerでManagementアカウント側にVPC/EC2/ALB等が作成されてしまっていた。`assume_role`を用いてDev用providerを分離することで、各リソースを正しいアカウントに分散させた。ロールのARN不一致や権限不足によるエラーを都度CLIで確認しながら解決した。
+
 ## 今後の改善
 
-#### 機能拡張（v2.0.0）
-* **データレイク基盤の構築**: S3 Data Lake / Glue / Athena / Lake Formation を用いたログ・データ分析基盤を、Devではなく独立した分析アカウントへ集約・構築する。
-* **CloudFrontオリジングループによる高速DR化**: Route 53のDNS切り替えラグ（数分間）をさらに削るため、CloudFront側でALBのエラー（502/503等）をフックにミリ秒単位でS3へフェイルオーバーさせる構成への拡張。
-* **ネットワーク拡張**: Transit GatewayによるHub-and-Spoke構成への移行。
-* **CI/CDパイプライン**: GitHub Actionsを用いた自動静的解析（fmt / validate / plan / tfsec / checkov）の実装。
+### 機能拡張（v2.0.0）
 
-#### コスト・運用最適化
-* **Configのコスト防御**: 今後のマルチリージョン展開時、プライマリ以外のリージョンで `include_global_resource_types = false` を適用し、グローバルリソースの重複記録による課金を防止。
-* **メッセージ処理の堅牢化**: SQSの `visibility_timeout_seconds` を、処理するLambdaのタイムアウト値の6倍以上に再設計し、メッセージの重複処理（ゴースト化）を構造的に防止。
+- データレイク基盤の構築：S3 Data Lake / Glue / Athena / Lake Formation を独立した分析アカウントへ集約
+- CloudFrontオリジングループによる高速DR化：ALBエラー時にミリ秒単位でS3へフェイルオーバー
+- Transit GatewayによるHub-and-Spoke構成への移行
+- GitHub Actions CI/CD（fmt / validate / plan / tfsec / checkov）
+- S3 BackendとDynamoDB LockによるState管理の実務化
+
+### コスト・運用最適化
+
+- Configのコスト防御：マルチリージョン展開時に`include_global_resource_types = false`を適用
+- SQSとLambdaタイムアウトの整合：`visibility_timeout_seconds`をLambdaタイムアウトの6倍以上に設定
 
 ### 対応済み
 
 #### ✅ マルチアカウントのプロバイダ分離
 
-`assume_role` を使用してDevアカウント（sena2）の `OrganizationAccountAccessRole` にスイッチし、VPC / EC2 / ALB 等のリソースを Dev アカウント側に分離済み。
+`assume_role`を使用してDevアカウント（sena2）の`OrganizationAccountAccessRole`にスイッチし、VPC / EC2 / ALB等のリソースをDevアカウント側に分離済み。
 
 ```hcl
 provider "aws" {
@@ -132,11 +204,11 @@ provider "aws" {
 }
 ```
 
-#### ✅ KMSとS3 / CloudFrontの結合
+#### ✅ KMS と S3 / CloudFront の結合
 
-- `aws_s3_bucket_server_side_encryption_configuration` によるS3へのKMS適用済み
-- KMSキーポリシーへの `cloudfront.amazonaws.com` の `kms:Decrypt` 権限付与済み
+- `aws_s3_bucket_server_side_encryption_configuration`によるS3へのKMS適用済み
+- KMSキーポリシーへの`cloudfront.amazonaws.com`の`kms:Decrypt`権限付与済み
 
-#### ✅ Canary Deployスティッキーセッション対応
+#### ✅ Canary Deploy スティッキーセッション対応
 
 ALBターゲットグループにCookieベースのスティッキーセッションを有効化。同一ユーザーがデプロイ完了まで同一バージョンにアクセスし続けられる構成に対応済み。
