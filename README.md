@@ -164,7 +164,7 @@ IAMユーザーはアカウントごとに管理が必要で鍵の使い回し�
 
 ### IAM Identity Center の IaC管理断念
 
-Terraform destroyを実行した際、Identity Centerのpermission_setリソースが依存関係の問題で削除エラーを繰り返した。IAMユーザーに`sso:DescribePermissionSet`権限がなく、またIdentity Center自体がリージョン横断的な管理構造を持つため、Terraformのstateとの整合が取れなかった。実務でもIdentity CenterはGUI管理とする組織が多いため、stateから除外しコンソール管理に切り替えた。
+Terraform destroyを実行した際、Identity Centerのpermission_setリソースが依存関係の問題で削除エラーを繰り返した。IAMユーザーに`sso:DescribePermissionSet`権限がなく、またIdentity Center自体がリージョン横断的な管理構造を持つため、Terraformのstateとの整合が取れなかった。学習環境ではTerraform destroy時の依存関係エラーが発生したため、GUI管理とした。
 
 ### OrganizationAccountAccessRole の手動作成
 
