@@ -199,7 +199,7 @@ Terraform destroyを実行した際、Identity CenterのPermission Setに関連�
 provider "aws" {
   alias  = "dev"
   assume_role {
-    role_arn = "arn:aws:iam::482178843450:role/OrganizationAccountAccessRole"
+    role_arn = "arn:aws:iam::XXXXXX XX:role/OrganizationAccountAccessRole"
   }
 }
 ```
